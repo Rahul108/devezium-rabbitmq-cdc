@@ -5,28 +5,28 @@ networks:
 services:
   # MySQL as source database
   mysql:
-    image: mysql:8.0
+    image: mysql:${MYSQL_VERSION}
     container_name: mysql
-    hostname: mysql
+    hostname: ${MYSQL_HOST}
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: debezium
-      MYSQL_USER: debezium
-      MYSQL_PASSWORD: dbz
-      MYSQL_DATABASE: inventory
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
     volumes:
       - ./mysql/init:/docker-entrypoint-initdb.d
       - ./mysql/data:/var/lib/mysql
     command: >
-      --server-id=1
+      --server-id=${MYSQL_SERVER_ID}
       --log-bin=mysql-bin
-      --binlog-format=ROW
-      --binlog-row-image=FULL
-      --expire-logs-days=10
+      --binlog-format=${MYSQL_BINLOG_FORMAT}
+      --binlog-row-image=${MYSQL_BINLOG_ROW_IMAGE}
+      --expire-logs-days=${MYSQL_EXPIRE_LOGS_DAYS}
       --binlog-rows-query-log-events=ON
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pdebezium"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -35,16 +35,16 @@ services:
     
   # RabbitMQ for event streaming
   rabbitmq:
-    image: rabbitmq:3.12-management
+    image: rabbitmq:${RABBITMQ_VERSION}-management
     container_name: rabbitmq
-    hostname: rabbitmq
+    hostname: ${RABBITMQ_HOST}
     ports:
-      - "5672:5672"   # AMQP port
-      - "15672:15672" # Management UI
+      - "${RABBITMQ_PORT}:5672"   # AMQP port
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672" # Management UI
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
     volumes:
       - ./rabbitmq/data:/var/lib/rabbitmq
       - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
@@ -59,13 +59,13 @@ services:
     
   # MongoDB as sink (first instance)
   mongodb1:
-    image: mongo:6.0
+    image: mongo:${MONGODB_VERSION}
     container_name: mongodb1
     ports:
-      - "27017:27017"
+      - "${MONGODB1_PORT}:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
     volumes:
       - ./mongodb/data1:/data/db
     healthcheck:
@@ -78,13 +78,13 @@ services:
 
   # MongoDB as sink (second instance)
   mongodb2:
-    image: mongo:6.0
+    image: mongo:${MONGODB_VERSION}
     container_name: mongodb2
     ports:
-      - "27018:27017"
+      - "${MONGODB2_PORT}:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
     volumes:
       - ./mongodb/data2:/data/db
     healthcheck:
@@ -97,7 +97,7 @@ services:
     
   # Debezium Server (standalone)
   debezium:
-    image: debezium/server:3.0.0.Final
+    image: debezium/server:${DEBEZIUM_VERSION}
     container_name: debezium
     restart: unless-stopped
     depends_on:
@@ -107,36 +107,36 @@ services:
         condition: service_healthy
     environment:
       # Debezium configuration
-      DEBEZIUM_SINK_TYPE: rabbitmq
-      DEBEZIUM_SOURCE_CONNECTOR_CLASS: io.debezium.connector.mysql.MySqlConnector
-      DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME: /debezium/data/offsets.dat
-      DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS: 0
+      DEBEZIUM_SINK_TYPE: ${DEBEZIUM_SINK_TYPE}
+      DEBEZIUM_SOURCE_CONNECTOR_CLASS: ${DEBEZIUM_CONNECTOR_CLASS}
+      DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME: ${DEBEZIUM_OFFSET_STORAGE_FILE}
+      DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS: ${DEBEZIUM_OFFSET_FLUSH_INTERVAL_MS}
       
       # MySQL source configuration
-      DEBEZIUM_SOURCE_DATABASE_HOSTNAME: mysql
-      DEBEZIUM_SOURCE_DATABASE_PORT: 3306
-      DEBEZIUM_SOURCE_DATABASE_USER: debezium
-      DEBEZIUM_SOURCE_DATABASE_PASSWORD: dbz
-      DEBEZIUM_SOURCE_DATABASE_SERVER_ID: 184054
-      DEBEZIUM_SOURCE_TOPIC_PREFIX: mysql
-      DEBEZIUM_SOURCE_DATABASE_INCLUDE_LIST: inventory
-      DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST: inventory.customers,inventory.orders
+      DEBEZIUM_SOURCE_DATABASE_HOSTNAME: ${MYSQL_HOST}
+      DEBEZIUM_SOURCE_DATABASE_PORT: ${MYSQL_PORT}
+      DEBEZIUM_SOURCE_DATABASE_USER: ${MYSQL_USER}
+      DEBEZIUM_SOURCE_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      DEBEZIUM_SOURCE_DATABASE_SERVER_ID: ${DEBEZIUM_SERVER_ID}
+      DEBEZIUM_SOURCE_TOPIC_PREFIX: ${DEBEZIUM_TOPIC_PREFIX}
+      DEBEZIUM_SOURCE_DATABASE_INCLUDE_LIST: ${DEBEZIUM_SOURCE_DB_INCLUDE_LIST}
+      DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST: ${DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST}
       DEBEZIUM_SOURCE_SCHEMA_HISTORY_INTERNAL_STORE_ONLY_CAPTURED_TABLES_DDL: "true"
-      DEBEZIUM_SOURCE_SCHEMA_HISTORY_INTERNAL_FILE_FILENAME: /debezium/data/schema_history.dat
-      DEBEZIUM_SOURCE_SCHEMA_HISTORY_INTERNAL: io.debezium.storage.file.history.FileSchemaHistory
+      DEBEZIUM_SOURCE_SCHEMA_HISTORY_INTERNAL_FILE_FILENAME: ${DEBEZIUM_SCHEMA_HISTORY_FILE}
+      DEBEZIUM_SOURCE_SCHEMA_HISTORY_INTERNAL: ${DEBEZIUM_SCHEMA_HISTORY_CLASS}
       
       # RabbitMQ sink configuration
-      DEBEZIUM_SINK_RABBITMQ_CONNECTION_HOST: rabbitmq
-      DEBEZIUM_SINK_RABBITMQ_CONNECTION_PORT: 5672
-      DEBEZIUM_SINK_RABBITMQ_CONNECTION_USERNAME: guest
-      DEBEZIUM_SINK_RABBITMQ_CONNECTION_PASSWORD: guest
-      DEBEZIUM_SINK_RABBITMQ_EXCHANGE: mysql-events
-      DEBEZIUM_SINK_RABBITMQ_ROUTINGKEY: mysql-cdc
+      DEBEZIUM_SINK_RABBITMQ_CONNECTION_HOST: ${RABBITMQ_HOST}
+      DEBEZIUM_SINK_RABBITMQ_CONNECTION_PORT: ${RABBITMQ_PORT}
+      DEBEZIUM_SINK_RABBITMQ_CONNECTION_USERNAME: ${RABBITMQ_USER}
+      DEBEZIUM_SINK_RABBITMQ_CONNECTION_PASSWORD: ${RABBITMQ_PASSWORD}
+      DEBEZIUM_SINK_RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE}
+      DEBEZIUM_SINK_RABBITMQ_ROUTINGKEY: ${RABBITMQ_ROUTING_KEY}
       DEBEZIUM_SINK_RABBITMQ_ACK: true
       
       # Additional configuration
-      DEBEZIUM_FORMAT_VALUE: json
-      DEBEZIUM_FORMAT_KEY: json
+      DEBEZIUM_FORMAT_VALUE: ${DEBEZIUM_FORMAT_VALUE}
+      DEBEZIUM_FORMAT_KEY: ${DEBEZIUM_FORMAT_KEY}
     volumes:
       - ./debezium-server/data:/debezium/data
     networks:
@@ -158,9 +158,11 @@ services:
       - mongodb1
       - mongodb2
     environment:
-      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672/
-      - MONGODB_URI_1=mongodb://admin:admin@mongodb1:27017/
-      - MONGODB_URI_2=mongodb://admin:admin@mongodb2:27017/
+      - RABBITMQ_URI=${RABBITMQ_URI}
+      - MONGODB_URI_1=${MONGODB1_URI}
+      - MONGODB_URI_2=${MONGODB2_URI}
+      - MONGODB_DATABASE=${MONGODB_DATABASE}
+      - MONGODB_COLLECTION_PREFIX=${MONGODB_COLLECTION_PREFIX}
     volumes:
       - ./go-consumer/config:/app/config
     networks:
@@ -176,11 +178,11 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      - MYSQL_HOST=mysql
-      - MYSQL_PORT=3306
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=${MYSQL_PORT}
       - MYSQL_USER=root
-      - MYSQL_PASSWORD=debezium
-      - MYSQL_DATABASE=inventory
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
     restart: "no"  # Run once and exit
     networks:
       - debezium-network

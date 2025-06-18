@@ -8,6 +8,25 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Check if .env file exists
+if [ -f .env ]; then
+  echo -e "${GREEN}Loading environment variables from .env file...${NC}"
+  set -a
+  source .env
+  set +a
+else
+  echo -e "${YELLOW}No .env file found. Using default values from .env.example...${NC}"
+  if [ -f .env.example ]; then
+    cp .env.example .env
+    set -a
+    source .env
+    set +a
+  else
+    echo -e "${RED}No .env.example file found. Please create an .env file before running this script.${NC}"
+    exit 1
+  fi
+fi
+
 echo -e "${YELLOW}Starting Debezium CDC with RabbitMQ and MongoDB...${NC}"
 
 # Build and start all services except the data generator
@@ -31,15 +50,15 @@ echo -e "${GREEN}Showing Debezium logs...${NC}"
 docker compose logs --tail=20 debezium
 
 echo -e "${GREEN}Showing RabbitMQ messages...${NC}"
-echo "Check RabbitMQ management UI at http://localhost:15672 (guest/guest)"
+echo "Check RabbitMQ management UI at http://localhost:${RABBITMQ_MANAGEMENT_PORT} (${RABBITMQ_USER}/${RABBITMQ_PASSWORD})"
 
 echo -e "${GREEN}Showing Go consumer logs...${NC}"
 docker compose logs --tail=20 go-consumer
 
 echo -e "${YELLOW}Checking MongoDB data...${NC}"
 echo "To check MongoDB data, run:"
-echo "docker exec -it mongodb1 mongosh -u admin -p admin --eval 'use cdc_data; db.mysql_customers.find()'"
-echo "docker exec -it mongodb2 mongosh -u admin -p admin --eval 'use cdc_data; db.mysql_customers.find()'"
+echo "docker exec -it mongodb1 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.${MONGODB_COLLECTION_PREFIX}_customers.find()'"
+echo "docker exec -it mongodb2 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.${MONGODB_COLLECTION_PREFIX}_customers.find()'"
 
 echo -e "${GREEN}Done! The CDC pipeline is now running.${NC}"
 echo "Use the following commands to interact with the system:"

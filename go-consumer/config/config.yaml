@@ -1,4 +1,5 @@
 rabbitmq:
+  # These values can be overridden by environment variables
   uri: amqp://guest:guest@rabbitmq:5672/
   queue_name: mysql.events
   exchange_name: mysql-events
@@ -6,6 +7,7 @@ rabbitmq:
   routing_key: "#"
 
 mongodb:
+  # These values can be overridden by environment variables
   - uri: mongodb://admin:admin@mongodb1:27017/
     database: cdc_data
     collection_prefix: mysql

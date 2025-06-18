@@ -272,14 +272,16 @@ func loadConfig() (*Config, error) {
 
 	// Set up MongoDB configs from environment variables
 	var mongoConfigs []MongoDBConfig
+	database := getEnvOrDefault("MONGODB_DATABASE", "cdc_data")
+	collectionPrefix := getEnvOrDefault("MONGODB_COLLECTION_PREFIX", "mysql")
 
 	// MongoDB 1
 	mongoURI1 := os.Getenv("MONGODB_URI_1")
 	if mongoURI1 != "" {
 		mongoConfigs = append(mongoConfigs, MongoDBConfig{
 			URI:              mongoURI1,
-			Database:         "cdc_data",
-			CollectionPrefix: "mysql",
+			Database:         database,
+			CollectionPrefix: collectionPrefix,
 		})
 	}
 
@@ -288,8 +290,8 @@ func loadConfig() (*Config, error) {
 	if mongoURI2 != "" {
 		mongoConfigs = append(mongoConfigs, MongoDBConfig{
 			URI:              mongoURI2,
-			Database:         "cdc_data",
-			CollectionPrefix: "mysql",
+			Database:         database,
+			CollectionPrefix: collectionPrefix,
 		})
 	}
 
@@ -396,4 +398,13 @@ func getOperationName(op string) string {
 	default:
 		return op
 	}
+}
+
+// getEnvOrDefault gets an environment variable or returns a default value if not set
+func getEnvOrDefault(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }
