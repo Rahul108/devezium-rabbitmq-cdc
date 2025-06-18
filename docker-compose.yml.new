@@ -1,0 +1,313 @@
+networks:
+  debezium-network:
+    driver: bridge
+
+services:
+  # MySQL as source database
+  mysql:
+    image: mysql:${MYSQL_VERSION}
+    container_name: mysql
+    hostname: ${MYSQL_HOST}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
+      - ./mysql/data:/var/lib/mysql
+    command: >
+      --server-id=${MYSQL_SERVER_ID}
+      --log-bin=mysql-bin
+      --binlog-format=${MYSQL_BINLOG_FORMAT}
+      --binlog-row-image=${MYSQL_BINLOG_ROW_IMAGE}
+      --expire-logs-days=${MYSQL_EXPIRE_LOGS_DAYS}
+      --binlog-rows-query-log-events=ON
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+    profiles:
+      - mysql
+      - all
+
+  # PostgreSQL as source database
+  postgresql:
+    image: postgres:${POSTGRESQL_VERSION}
+    container_name: postgresql
+    hostname: ${POSTGRESQL_HOST}
+    ports:
+      - "${POSTGRESQL_PORT}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRESQL_USER}
+      POSTGRES_PASSWORD: ${POSTGRESQL_PASSWORD}
+      POSTGRES_DB: ${POSTGRESQL_DATABASE}
+    volumes:
+      - ./postgresql/init:/docker-entrypoint-initdb.d
+      - ./postgresql/data:/var/lib/postgresql/data
+    command: >
+      -c wal_level=logical 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRESQL_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+    profiles:
+      - postgresql
+      - all
+
+  # MongoDB as source database
+  mongodb-source:
+    image: mongo:${MONGODB_SOURCE_VERSION}
+    container_name: mongodb-source
+    hostname: ${MONGODB_SOURCE_HOST}
+    ports:
+      - "${MONGODB_SOURCE_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_SOURCE_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_SOURCE_PASSWORD}
+    volumes:
+      - ./mongodb-source/init:/docker-entrypoint-initdb.d
+      - ./mongodb-source/data:/data/db
+    command: >
+      --replSet ${MONGODB_SOURCE_REPLICA_SET}
+      --oplogSize 128
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "'db.adminCommand(\"ping\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+    profiles:
+      - mongodb-source
+      - all
+
+  # MongoDB replica set initializer
+  mongodb-source-setup:
+    image: mongo:${MONGODB_SOURCE_VERSION}
+    container_name: mongodb-source-setup
+    depends_on:
+      mongodb-source:
+        condition: service_healthy
+    volumes:
+      - ./mongodb-source/setup:/scripts
+    command: >
+      mongosh --host ${MONGODB_SOURCE_HOST} --username ${MONGODB_SOURCE_USER} 
+      --password ${MONGODB_SOURCE_PASSWORD} --authenticationDatabase admin
+      --file /scripts/init-replica.js
+    networks:
+      - debezium-network
+    profiles:
+      - mongodb-source
+      - all
+
+  # Oracle as source database
+  oracle:
+    image: container-registry.oracle.com/database/enterprise:${ORACLE_VERSION}
+    container_name: oracle
+    hostname: ${ORACLE_HOST}
+    ports:
+      - "${ORACLE_PORT}:1521"
+    environment:
+      ORACLE_SID: ${ORACLE_SID}
+      ORACLE_PDB: ${ORACLE_PDB}
+      ORACLE_PWD: ${ORACLE_PASSWORD}
+    volumes:
+      - ./oracle/data:/opt/oracle/oradata
+      - ./oracle/setup:/opt/oracle/scripts/setup
+      - ./oracle/startup:/opt/oracle/scripts/startup
+    healthcheck:
+      test: ["CMD", "sqlplus", "-L", "sys/${ORACLE_PASSWORD}@//localhost:1521/${ORACLE_SID} as sysdba", "@healthcheck.sql"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - debezium-network
+    profiles:
+      - oracle
+      - all
+
+  # Cassandra as source database
+  cassandra:
+    image: cassandra:${CASSANDRA_VERSION}
+    container_name: cassandra
+    hostname: ${CASSANDRA_HOST}
+    ports:
+      - "${CASSANDRA_PORT}:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: DebeziumCluster
+    volumes:
+      - ./cassandra/data:/var/lib/cassandra
+      - ./cassandra/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "cqlsh", "-u", "${CASSANDRA_USER}", "-p", "${CASSANDRA_PASSWORD}", "-e", "describe keyspaces"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - debezium-network
+    profiles:
+      - cassandra
+      - all
+      
+  # RabbitMQ for event streaming
+  rabbitmq:
+    image: rabbitmq:${RABBITMQ_VERSION}-management
+    container_name: rabbitmq
+    hostname: ${RABBITMQ_HOST}
+    ports:
+      - "${RABBITMQ_PORT}:5672"   # AMQP port
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    volumes:
+      - ./rabbitmq/data:/var/lib/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+    
+  # MongoDB as sink (first instance)
+  mongodb1:
+    image: mongo:${MONGODB_SINK_VERSION}
+    container_name: mongodb1
+    ports:
+      - "${MONGODB1_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_SINK_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_SINK_PASSWORD}
+    volumes:
+      - ./mongodb/data1:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "'db.adminCommand(\"ping\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+
+  # MongoDB as sink (second instance)
+  mongodb2:
+    image: mongo:${MONGODB_SINK_VERSION}
+    container_name: mongodb2
+    ports:
+      - "${MONGODB2_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_SINK_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_SINK_PASSWORD}
+    volumes:
+      - ./mongodb/data2:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "'db.adminCommand(\"ping\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - debezium-network
+    
+  # Debezium Server (standalone)
+  debezium:
+    image: debezium/server:${DEBEZIUM_VERSION}
+    container_name: debezium
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./debezium-server/data:/debezium/data
+      - ./debezium-server/conf:/debezium/conf
+      - ./debezium-server/lib:/debezium/lib
+      - ./scripts/debezium-start.sh:/debezium/run.sh
+    command: /debezium/run.sh
+    networks:
+      - debezium-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/q/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    
+  # Go consumer
+  go-consumer:
+    build:
+      context: ./go-consumer
+      dockerfile: Dockerfile
+    container_name: go-consumer
+    depends_on:
+      - rabbitmq
+      - mongodb1
+      - mongodb2
+    environment:
+      - RABBITMQ_URI=${RABBITMQ_URI}
+      - MONGODB_URI_1=${MONGODB1_URI}
+      - MONGODB_URI_2=${MONGODB2_URI}
+      - MONGODB_DATABASE=${MONGODB_SINK_DATABASE}
+      - MONGODB_COLLECTION_PREFIX=${MONGODB_SINK_COLLECTION_PREFIX}
+    volumes:
+      - ./go-consumer/config:/app/config
+    networks:
+      - debezium-network
+
+  # Data generator
+  data-generator:
+    build:
+      context: ./data-generator
+      dockerfile: Dockerfile
+    container_name: data-generator
+    environment:
+      - ENABLE_MYSQL=${ENABLE_MYSQL}
+      - ENABLE_POSTGRESQL=${ENABLE_POSTGRESQL}
+      - ENABLE_MONGODB=${ENABLE_MONGODB_SOURCE}
+      - ENABLE_ORACLE=${ENABLE_ORACLE}
+      - ENABLE_CASSANDRA=${ENABLE_CASSANDRA}
+      # MySQL
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=${MYSQL_PORT}
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      # PostgreSQL
+      - POSTGRESQL_HOST=${POSTGRESQL_HOST}
+      - POSTGRESQL_PORT=${POSTGRESQL_PORT}
+      - POSTGRESQL_USER=${POSTGRESQL_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRESQL_PASSWORD}
+      - POSTGRESQL_DATABASE=${POSTGRESQL_DATABASE}
+      # MongoDB
+      - MONGODB_HOST=${MONGODB_SOURCE_HOST}
+      - MONGODB_PORT=${MONGODB_SOURCE_PORT}
+      - MONGODB_USER=${MONGODB_SOURCE_USER}
+      - MONGODB_PASSWORD=${MONGODB_SOURCE_PASSWORD}
+      - MONGODB_DATABASE=${MONGODB_SOURCE_DATABASE}
+      # Oracle
+      - ORACLE_HOST=${ORACLE_HOST}
+      - ORACLE_PORT=${ORACLE_PORT}
+      - ORACLE_USER=${ORACLE_USER}
+      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
+      - ORACLE_SID=${ORACLE_SID}
+      - ORACLE_PDB=${ORACLE_PDB}
+      # Cassandra
+      - CASSANDRA_HOST=${CASSANDRA_HOST}
+      - CASSANDRA_PORT=${CASSANDRA_PORT}
+      - CASSANDRA_USER=${CASSANDRA_USER}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
+      - CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE}
+    restart: "no"  # Run once and exit
+    networks:
+      - debezium-network

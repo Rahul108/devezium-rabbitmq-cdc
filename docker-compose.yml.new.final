@@ -1,3 +1,5 @@
+version: '3.8'
+
 networks:
   debezium-network:
     driver: bridge
@@ -238,8 +240,8 @@ services:
       - ./debezium-server/data:/debezium/data
       - ./debezium-server/conf:/debezium/conf
       - ./debezium-server/lib:/debezium/lib
-      - ./scripts/debezium-start.sh:/debezium/setup.sh
-    command: ["sh", "-c", "chmod +x /debezium/setup.sh && /debezium/setup.sh"]
+      - ./scripts/debezium-start.sh:/debezium/run.sh
+    command: /debezium/run.sh
     environment:
       # Debezium configuration - populated by scripts/debezium-start.sh
       SOURCE_TYPE: ${SOURCE_TYPE}
@@ -350,7 +352,7 @@ services:
   data-generator:
     build:
       context: ./data-generator
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.new
     container_name: data-generator
     environment:
       - ENABLE_MYSQL=${ENABLE_MYSQL}

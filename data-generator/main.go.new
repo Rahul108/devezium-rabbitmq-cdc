@@ -12,19 +12,19 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gocql/gocql" // Cassandra driver
-	_ "github.com/lib/pq"    // PostgreSQL driver
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/gocql/gocql" // Cassandra driver
 )
 
 // Configuration for each database
 type Config struct {
-	Enabled  bool
-	Host     string
-	Port     string
-	User     string
+	Enabled bool
+	Host    string
+	Port    string
+	User    string
 	Password string
 	Database string
 }
@@ -102,7 +102,7 @@ func main() {
 // generateMySQLData generates sample data for MySQL
 func generateMySQLData(config Config) error {
 	log.Println("Generating MySQL data...")
-
+	
 	// Connect to MySQL
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", config.User, config.Password, config.Host, config.Port, config.Database)
 	db, err := sql.Open("mysql", dsn)
@@ -154,7 +154,7 @@ func generateMySQLData(config Config) error {
 // generatePostgreSQLData generates sample data for PostgreSQL
 func generatePostgreSQLData(config Config) error {
 	log.Println("Generating PostgreSQL data...")
-
+	
 	// Connect to PostgreSQL
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		config.Host, config.Port, config.User, config.Password, config.Database)
@@ -207,7 +207,7 @@ func generatePostgreSQLData(config Config) error {
 // generateMongoDBData generates sample data for MongoDB
 func generateMongoDBData(config Config) error {
 	log.Println("Generating MongoDB data...")
-
+	
 	// Set up MongoDB client options
 	clientOptions := options.Client().ApplyURI(
 		fmt.Sprintf("mongodb://%s:%s@%s:%s",
@@ -217,7 +217,7 @@ func generateMongoDBData(config Config) error {
 	// Connect to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
+	
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return fmt.Errorf("failed to connect to MongoDB: %w", err)
@@ -242,14 +242,14 @@ func generateMongoDBData(config Config) error {
 		// Insert a new customer
 		customerID := 1000 + int64(i)
 		customer := createCustomer(customerID)
-
+		
 		_, err := customersCollection.InsertOne(ctx, customer)
 		if err != nil {
 			log.Printf("Failed to insert MongoDB customer: %v", err)
 			continue
 		}
 
-		log.Printf("Inserted MongoDB customer: %s %s (ID: %d)",
+		log.Printf("Inserted MongoDB customer: %s %s (ID: %d)", 
 			customer["first_name"], customer["last_name"], customer["_id"])
 
 		// Insert orders for the new customer
@@ -257,14 +257,14 @@ func generateMongoDBData(config Config) error {
 		for j := 0; j < numOrders; j++ {
 			orderID := 2000 + int64(i*3+j)
 			order := createOrder(orderID, customerID)
-
+			
 			_, err := ordersCollection.InsertOne(ctx, order)
 			if err != nil {
 				log.Printf("Failed to insert MongoDB order: %v", err)
 				continue
 			}
 
-			log.Printf("Inserted MongoDB order for customer ID %d: $%.2f, status: %s",
+			log.Printf("Inserted MongoDB order for customer ID %d: $%.2f, status: %s", 
 				order["customer_id"], order["total"], order["status"])
 		}
 
@@ -278,53 +278,54 @@ func generateMongoDBData(config Config) error {
 // generateOracleData generates sample data for Oracle
 func generateOracleData(config Config) error {
 	log.Println("Generating Oracle data...")
-
+	
 	// For Oracle, we'll use the Oracle Instant Client driver
 	// This is a simplified implementation as the real driver would require Oracle client libraries
 	log.Println("Note: Oracle support is simulated - in a real environment, you would need the Oracle client libraries")
-
+	
 	// In a real implementation, you would connect like this:
-	// connStr := fmt.Sprintf("%s/%s@%s:%s/%s",
+	// connStr := fmt.Sprintf("%s/%s@%s:%s/%s", 
 	//     config.User, config.Password, config.Host, config.Port, config.Database)
 	// db, err := sql.Open("oracle", connStr)
-
+	
 	// For demonstration purposes, we'll just log the actions without actually connecting
 	log.Printf("Would connect to Oracle at %s:%s with user %s", config.Host, config.Port, config.User)
-
+	
 	// Simulate generating data
 	for i := 0; i < 10; i++ {
 		customerID := int64(100 + i)
 		firstName := randomFirstName()
 		lastName := randomLastName()
-
+		email := fmt.Sprintf("%s.%s@example.com", firstName, lastName)
+		
 		log.Printf("Would insert Oracle customer: %s %s (ID: %d)", firstName, lastName, customerID)
-
+		
 		// Simulate inserting orders
 		numOrders := rand.Intn(3) + 1
 		for j := 0; j < numOrders; j++ {
 			total := 10.0 + rand.Float64()*990.0
 			status := randomOrderStatus()
-
-			log.Printf("Would insert Oracle order for customer ID %d: $%.2f, status: %s",
+			
+			log.Printf("Would insert Oracle order for customer ID %d: $%.2f, status: %s", 
 				customerID, total, status)
 		}
-
+		
 		time.Sleep(1 * time.Second)
 	}
-
+	
 	return nil
 }
 
 // generateCassandraData generates sample data for Cassandra
 func generateCassandraData(config Config) error {
 	log.Println("Generating Cassandra data...")
-
+	
 	// Connect to Cassandra
 	port, _ := strconv.Atoi(config.Port)
 	if port == 0 {
 		port = 9042 // Default Cassandra port
 	}
-
+	
 	cluster := gocql.NewCluster(config.Host)
 	cluster.Port = port
 	cluster.Authenticator = gocql.PasswordAuthenticator{
@@ -356,7 +357,7 @@ func generateCassandraData(config Config) error {
 			"INSERT INTO customers (id, first_name, last_name, email, created_at) VALUES (?, ?, ?, ?, ?)",
 			customerID, firstName, lastName, email, time.Now(),
 		).Exec()
-
+		
 		if err != nil {
 			log.Printf("Failed to insert Cassandra customer: %v", err)
 			continue
@@ -369,7 +370,7 @@ func generateCassandraData(config Config) error {
 		for j := 0; j < numOrders; j++ {
 			orderID := 200 + i*3 + j
 			orderDate := time.Now()
-			total := 10.0 + rand.Float64()*990.0 // Random total between $10 and $1000
+			total := 10.0 + rand.Float64()*990.0  // Random total between $10 and $1000
 			status := randomOrderStatus()
 
 			// Insert the order
@@ -377,13 +378,13 @@ func generateCassandraData(config Config) error {
 				"INSERT INTO orders (id, customer_id, order_date, status, total) VALUES (?, ?, ?, ?, ?)",
 				orderID, customerID, orderDate, status, total,
 			).Exec()
-
+			
 			if err != nil {
 				log.Printf("Failed to insert Cassandra order: %v", err)
 				continue
 			}
 
-			log.Printf("Inserted Cassandra order for customer ID %d: $%.2f, status: %s",
+			log.Printf("Inserted Cassandra order for customer ID %d: $%.2f, status: %s", 
 				customerID, total, status)
 		}
 
@@ -452,7 +453,7 @@ func insertPostgreSQLCustomer(db *sql.DB) (int64, error) {
 		"INSERT INTO customers (first_name, last_name, email) VALUES ($1, $2, $3) RETURNING id",
 		firstName, lastName, email,
 	).Scan(&id)
-
+	
 	if err != nil {
 		return 0, err
 	}
@@ -485,7 +486,7 @@ func createCustomer(id int64) bson.M {
 	firstName := randomFirstName()
 	lastName := randomLastName()
 	email := fmt.Sprintf("%s.%s@example.com", firstName, lastName)
-
+	
 	return bson.M{
 		"_id":        id,
 		"first_name": firstName,
@@ -499,7 +500,7 @@ func createOrder(id int64, customerID int64) bson.M {
 	orderDate := time.Now().AddDate(0, 0, -rand.Intn(30)) // Random date in the last 30 days
 	total := 10.0 + rand.Float64()*990.0                  // Random total between $10 and $1000
 	status := randomOrderStatus()
-
+	
 	return bson.M{
 		"_id":         id,
 		"customer_id": customerID,
@@ -539,7 +540,7 @@ func randomOrderStatus() string {
 func getDBConfig(prefix string) Config {
 	enabledStr := getEnv(fmt.Sprintf("ENABLE_%s", prefix), "false")
 	enabled := strings.ToLower(enabledStr) == "true"
-
+	
 	return Config{
 		Enabled:  enabled,
 		Host:     getEnv(fmt.Sprintf("%s_HOST", prefix), "localhost"),

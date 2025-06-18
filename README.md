@@ -2,7 +2,7 @@
 
 This project demonstrates a Change Data Capture (CDC) solution using:
 - Debezium Server 3.0.0.Final (standalone)
-- MySQL as the source database
+- Multiple source databases (MySQL, PostgreSQL, MongoDB, Oracle, Cassandra)
 - RabbitMQ as the message broker
 - Multiple MongoDB instances as sinks
 - Go-based consumer for RabbitMQ to MongoDB
@@ -13,7 +13,11 @@ This project demonstrates a Change Data Capture (CDC) solution using:
 debezium-cdc/
 ├── debezium-server/     # Debezium Server configuration
 ├── mysql/               # MySQL initialization scripts
-├── mongodb/             # MongoDB data directories
+├── postgresql/          # PostgreSQL initialization scripts
+├── mongodb-source/      # MongoDB source setup
+├── oracle/              # Oracle setup
+├── cassandra/           # Cassandra setup
+├── mongodb/             # MongoDB sink data directories
 ├── rabbitmq/            # RabbitMQ data
 ├── go-consumer/         # Go-based RabbitMQ consumer
 ├── data-generator/      # Test data generator
@@ -42,12 +46,33 @@ This project uses:
    cd debezium-cdc
    ```
 
-2. Start the services:
+2. Configure your environment:
+   ```bash
+   cp .env.example .env
+   # Edit .env to enable/disable specific source databases
+   ```
+
+3. Start the services:
    ```bash
    docker compose up -d
    ```
 
-3. Generate test data (this will run automatically when the stack is deployed):
+   Alternatively, you can use the run.sh script to start specific source databases:
+   ```bash
+   # Start with MySQL source only
+   ./run.sh --mysql
+   
+   # Start with PostgreSQL and MongoDB sources
+   ./run.sh --postgresql --mongodb
+   
+   # Start with all sources
+   ./run.sh --all
+   
+   # Clean all data before starting
+   ./run.sh --mysql --clean
+   ```
+
+4. Generate test data (this will run automatically when the stack is deployed):
    ```bash
    docker compose up data-generator
    ```
@@ -66,12 +91,35 @@ This project uses:
    docker compose logs -f go-consumer
    ```
 
-6. Verify setup (optional):
+6. Testing the stack:
    ```bash
-   ./verify-debezium-setup.sh
+   # Test RabbitMQ configuration
+   ./test_rabbitmq.sh
+   
+   # Test the entire stack
+   ./test_stack.sh
    ```
 
 ## Configuration
+
+### Enabling/Disabling Source Databases
+
+You can enable or disable specific source databases by editing the `.env` file:
+
+```
+# Source database selection (true/false)
+ENABLE_MYSQL=true
+ENABLE_POSTGRESQL=false
+ENABLE_MONGODB_SOURCE=false
+ENABLE_ORACLE=false
+ENABLE_CASSANDRA=false
+```
+
+After changing these settings, restart the stack:
+```bash
+docker compose down
+docker compose up -d
+```
 
 ### Adding/Removing MongoDB Sinks
 
@@ -85,15 +133,32 @@ To add or remove MongoDB sinks:
    docker compose up -d
    ```
 
-### Modifying MySQL Source Tables
+### Modifying Source Database Tables/Collections
 
-1. Edit the MySQL initialization script in `mysql/init/01-init.sql`
-2. Update the Debezium configuration in `debezium-server/conf/application.properties` to include the new tables
-3. Restart the services:
-   ```bash
-   docker compose down -v  # Use -v to remove volumes and start fresh
-   docker compose up -d
-   ```
+#### MySQL
+1. Edit the MySQL initialization script in `mysql/init/`
+2. Update the `.env` file to include the new tables in `MYSQL_SOURCE_TABLE_INCLUDE_LIST`
+
+#### PostgreSQL
+1. Edit the PostgreSQL initialization script in `postgresql/init/`
+2. Update the `.env` file to include the new tables in `POSTGRESQL_SOURCE_TABLE_INCLUDE_LIST`
+
+#### MongoDB
+1. Update the `.env` file to include the new collections in `MONGODB_SOURCE_COLLECTION_INCLUDE_LIST`
+
+#### Oracle
+1. Edit the Oracle initialization script in `oracle/setup/`
+2. Update the `.env` file to include the new tables in `ORACLE_SOURCE_TABLE_INCLUDE_LIST`
+
+#### Cassandra
+1. Edit the Cassandra initialization script in `cassandra/init/`
+2. Update the `.env` file to include the new tables in `CASSANDRA_SOURCE_TABLE_INCLUDE_LIST`
+
+After making changes, restart the services:
+```bash
+docker compose down -v  # Use -v to remove volumes and start fresh
+docker compose up -d
+```
 
 ### Changing RabbitMQ Configuration
 
@@ -109,15 +174,22 @@ To add or remove MongoDB sinks:
 
 - RabbitMQ Management UI: http://localhost:15672 (guest/guest)
 - MySQL: localhost:3306 (root/debezium)
-- MongoDB 1: localhost:27017 (admin/admin)
-- MongoDB 2: localhost:27018 (admin/admin)
+- PostgreSQL: localhost:5432 (postgres/postgres)
+- MongoDB Source: localhost:27017 (admin/admin)
+- Oracle: localhost:1521 (sys/oracle)
+- Cassandra: localhost:9042 (cassandra/cassandra)
+- MongoDB Sink 1: localhost:27017 (admin/admin)
+- MongoDB Sink 2: localhost:27018 (admin/admin)
 
 ## Troubleshooting
 
-- **Debezium not capturing changes**: Check the Debezium logs with `docker compose logs debezium`. Make sure the MySQL binary logging is enabled and the user has appropriate permissions.
+- **Debezium not capturing changes**: Check the Debezium logs with `docker compose logs debezium`. Make sure the source database binary logging or equivalent is enabled and the user has appropriate permissions.
+- **Debezium container fails to start with "run.sh not found"**: This is usually due to incorrect paths in the container. The script now tries multiple startup methods automatically.
+- **Permission denied when writing application.properties**: The script now uses `cp` instead of `mv` to avoid cross-device move issues.
+- **"No sources enabled" message**: Check your `.env` file and ensure at least one `ENABLE_*` variable is set to `true`.
 - **Consumer not receiving messages**: Check the RabbitMQ Management UI to verify that messages are being published to the expected queue.
 - **Data not appearing in MongoDB**: Check the Go consumer logs with `docker compose logs go-consumer` for any connection or processing errors.
-- **RabbitMQ connectivity issues**: Run `./verify-debezium-setup.sh` to diagnose common connectivity problems.
+- **Source database connectivity issues**: Check that the source database is healthy with `docker compose ps` and that the initialization scripts have run correctly.
 
 ## Library Dependencies
 

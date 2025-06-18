@@ -18,11 +18,29 @@ This project uses a centralized environment configuration through `.env` files t
 
 The configuration is organized into several sections:
 
-- **General Configuration**: Versions and network ports
-- **MySQL Configuration**: Database credentials and server settings
+- **General Configuration**: Versions, feature flags, and network ports
+- **Source Database Configuration**: 
+  - MySQL credentials and server settings
+  - PostgreSQL credentials and settings
+  - MongoDB source credentials and settings
+  - Oracle credentials and settings
+  - Cassandra credentials and settings
 - **RabbitMQ Configuration**: Message broker settings
-- **MongoDB Configuration**: Database connection settings
+- **MongoDB Sink Configuration**: Database connection settings
 - **Debezium Configuration**: CDC engine configuration
+
+## Enabling/Disabling Source Databases
+
+You can enable or disable specific source databases by setting these environment variables:
+
+```
+# Source database selection (true/false)
+ENABLE_MYSQL=true
+ENABLE_POSTGRESQL=false
+ENABLE_MONGODB_SOURCE=false
+ENABLE_ORACLE=false
+ENABLE_CASSANDRA=false
+```
 
 ## Using Environment Variables
 
