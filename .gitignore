@@ -1,0 +1,25 @@
+# Ignore data directories
+mysql/data/
+mongodb/data*/
+rabbitmq/data/
+debezium-server/data/
+
+# Ignore Go binaries and dependencies
+go-consumer/consumer
+data-generator/data-generator
+**/*.exe
+**/*.o
+**/*.a
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore logs
+*.log

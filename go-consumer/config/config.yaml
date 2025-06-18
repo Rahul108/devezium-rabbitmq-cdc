@@ -1,0 +1,14 @@
+rabbitmq:
+  uri: amqp://guest:guest@rabbitmq:5672/
+  queue_name: mysql.events
+  exchange_name: mysql-events
+  exchange_type: topic
+  routing_key: "#"
+
+mongodb:
+  - uri: mongodb://admin:admin@mongodb1:27017/
+    database: cdc_data
+    collection_prefix: mysql
+  - uri: mongodb://admin:admin@mongodb2:27017/
+    database: cdc_data
+    collection_prefix: mysql

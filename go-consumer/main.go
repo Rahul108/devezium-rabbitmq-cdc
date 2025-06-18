@@ -1,0 +1,316 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/spf13/viper"
+	"github.com/streadway/amqp"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+// Config represents the application configuration
+type Config struct {
+	RabbitMQ struct {
+		URI          string `mapstructure:"uri"`
+		QueueName    string `mapstructure:"queue_name"`
+		ExchangeName string `mapstructure:"exchange_name"`
+		ExchangeType string `mapstructure:"exchange_type"`
+		RoutingKey   string `mapstructure:"routing_key"`
+	} `mapstructure:"rabbitmq"`
+	MongoDB []MongoDBConfig `mapstructure:"mongodb"`
+}
+
+// MongoDBConfig represents a MongoDB connection configuration
+type MongoDBConfig struct {
+	URI              string `mapstructure:"uri"`
+	Database         string `mapstructure:"database"`
+	CollectionPrefix string `mapstructure:"collection_prefix"`
+}
+
+// DebeziumEvent represents the structure of events from Debezium
+type DebeziumEvent struct {
+	Schema  json.RawMessage `json:"schema"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+func main() {
+	// Load configuration
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Connect to MongoDB instances
+	mongoClients := make([]*mongo.Client, 0, len(cfg.MongoDB))
+	for _, mongoConfig := range cfg.MongoDB {
+		client, err := connectToMongoDB(mongoConfig.URI)
+		if err != nil {
+			log.Fatalf("Failed to connect to MongoDB at %s: %v", mongoConfig.URI, err)
+		}
+		defer client.Disconnect(context.Background())
+		mongoClients = append(mongoClients, client)
+	}
+
+	// Connect to RabbitMQ
+	rabbitConn, err := connectToRabbitMQ(cfg.RabbitMQ.URI)
+	if err != nil {
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+	}
+	defer rabbitConn.Close()
+
+	// Create a channel
+	ch, err := rabbitConn.Channel()
+	if err != nil {
+		log.Fatalf("Failed to open a channel: %v", err)
+	}
+	defer ch.Close()
+
+	// Declare the exchange
+	err = ch.ExchangeDeclare(
+		cfg.RabbitMQ.ExchangeName, // name
+		cfg.RabbitMQ.ExchangeType, // type
+		true,                      // durable
+		false,                     // auto-deleted
+		false,                     // internal
+		false,                     // no-wait
+		nil,                       // arguments
+	)
+	if err != nil {
+		log.Fatalf("Failed to declare an exchange: %v", err)
+	}
+
+	// Declare a queue
+	q, err := ch.QueueDeclare(
+		cfg.RabbitMQ.QueueName, // name
+		true,                   // durable
+		false,                  // delete when unused
+		false,                  // exclusive
+		false,                  // no-wait
+		nil,                    // arguments
+	)
+	if err != nil {
+		log.Fatalf("Failed to declare a queue: %v", err)
+	}
+
+	// Bind the queue to the exchange
+	err = ch.QueueBind(
+		q.Name,      // queue name
+		"#",         // routing key
+		"amq.topic", // exchange
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatalf("Failed to bind a queue: %v", err)
+	}
+
+	// Start consuming
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		false,  // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+	if err != nil {
+		log.Fatalf("Failed to register a consumer: %v", err)
+	}
+
+	// Handle graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Process messages
+	log.Println("Starting to consume messages...")
+	go func() {
+		for msg := range msgs {
+			log.Printf("Received a message: %s", msg.RoutingKey)
+
+			// Parse the message
+			var event DebeziumEvent
+			if err := json.Unmarshal(msg.Body, &event); err != nil {
+				log.Printf("Error unmarshalling message: %v", err)
+				msg.Nack(false, false)
+				continue
+			}
+
+			// Store in MongoDB
+			for i, client := range mongoClients {
+				mongoConfig := cfg.MongoDB[i]
+
+				// Determine collection name based on routing key
+				// For simplicity, we'll use the table name from the routing key
+				parts := splitRoutingKey(msg.RoutingKey)
+				collectionName := mongoConfig.CollectionPrefix
+				if len(parts) > 0 {
+					collectionName += "_" + parts[len(parts)-1]
+				}
+
+				// Insert into MongoDB
+				collection := client.Database(mongoConfig.Database).Collection(collectionName)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+				// Insert the raw JSON data
+				var document map[string]interface{}
+				if err := json.Unmarshal(msg.Body, &document); err != nil {
+					log.Printf("Error parsing JSON for MongoDB: %v", err)
+					cancel()
+					continue
+				}
+
+				_, err := collection.InsertOne(ctx, document)
+				cancel()
+
+				if err != nil {
+					log.Printf("Error inserting into MongoDB %d: %v", i+1, err)
+				} else {
+					log.Printf("Successfully stored in MongoDB %d, collection: %s", i+1, collectionName)
+				}
+			}
+
+			// Acknowledge the message
+			msg.Ack(false)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-quit
+	log.Println("Shutting down gracefully...")
+}
+
+// loadConfig loads the application configuration from file or environment variables
+func loadConfig() (*Config, error) {
+	// Set default values
+	viper.SetDefault("rabbitmq.uri", "amqp://guest:guest@rabbitmq:5672/")
+	viper.SetDefault("rabbitmq.queue_name", "mysql.events")
+	viper.SetDefault("rabbitmq.exchange_name", "mysql-events")
+	viper.SetDefault("rabbitmq.exchange_type", "topic")
+	viper.SetDefault("rabbitmq.routing_key", "#")
+
+	// Check environment variables
+	rabbitURI := os.Getenv("RABBITMQ_URI")
+	if rabbitURI != "" {
+		viper.Set("rabbitmq.uri", rabbitURI)
+	}
+
+	// Set up MongoDB configs from environment variables
+	var mongoConfigs []MongoDBConfig
+
+	// MongoDB 1
+	mongoURI1 := os.Getenv("MONGODB_URI_1")
+	if mongoURI1 != "" {
+		mongoConfigs = append(mongoConfigs, MongoDBConfig{
+			URI:              mongoURI1,
+			Database:         "cdc_data",
+			CollectionPrefix: "mysql",
+		})
+	}
+
+	// MongoDB 2
+	mongoURI2 := os.Getenv("MONGODB_URI_2")
+	if mongoURI2 != "" {
+		mongoConfigs = append(mongoConfigs, MongoDBConfig{
+			URI:              mongoURI2,
+			Database:         "cdc_data",
+			CollectionPrefix: "mysql",
+		})
+	}
+
+	// Check for config file
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath("/app/config")
+	viper.AddConfigPath("./config")
+
+	// Read from config file if it exists
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("error reading config file: %w", err)
+		}
+		// Config file not found, we'll use defaults and environment variables
+	}
+
+	// Create and populate config
+	cfg := &Config{}
+	if err := viper.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("unable to decode config: %w", err)
+	}
+
+	// Add MongoDB configs from environment if not already set
+	if len(cfg.MongoDB) == 0 {
+		cfg.MongoDB = mongoConfigs
+	}
+
+	return cfg, nil
+}
+
+// connectToMongoDB establishes a connection to a MongoDB instance
+func connectToMongoDB(uri string) (*mongo.Client, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+
+	// Ping the database to verify connection
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Connected to MongoDB at %s", uri)
+	return client, nil
+}
+
+// connectToRabbitMQ establishes a connection to RabbitMQ
+func connectToRabbitMQ(uri string) (*amqp.Connection, error) {
+	// Retry connection a few times
+	var conn *amqp.Connection
+	var err error
+
+	for i := 0; i < 5; i++ {
+		conn, err = amqp.Dial(uri)
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to RabbitMQ, retrying in 5 seconds: %v", err)
+		time.Sleep(5 * time.Second)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Connected to RabbitMQ at %s", uri)
+	return conn, nil
+}
+
+// splitRoutingKey splits a routing key into parts
+func splitRoutingKey(key string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(key); i++ {
+		if key[i] == '.' {
+			if start < i {
+				result = append(result, key[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(key) {
+		result = append(result, key[start:])
+	}
+	return result
+}
