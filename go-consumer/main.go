@@ -41,6 +41,28 @@ type DebeziumEvent struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// DebeziumPayload represents the structure of the payload part of a Debezium event
+type DebeziumPayload struct {
+	Before      json.RawMessage        `json:"before"`
+	After       json.RawMessage        `json:"after"`
+	Source      map[string]interface{} `json:"source"`
+	Op          string                 `json:"op"`
+	TsMs        int64                  `json:"ts_ms"`
+	Transaction map[string]interface{} `json:"transaction"`
+}
+
+// SimplifiedCDCEvent represents the simplified structure we want to store in MongoDB
+type SimplifiedCDCEvent struct {
+	DatabaseName   string                 `json:"database_name"`
+	TableName      string                 `json:"table_name"`
+	Operation      string                 `json:"operation"`
+	BeforeData     map[string]interface{} `json:"before_data,omitempty"`
+	AfterData      map[string]interface{} `json:"after_data,omitempty"`
+	Timestamp      time.Time              `json:"timestamp"`
+	TransactionID  string                 `json:"transaction_id,omitempty"`
+	BinlogPosition map[string]interface{} `json:"binlog_position,omitempty"`
+}
+
 func main() {
 	// Load configuration
 	cfg, err := loadConfig()
@@ -144,6 +166,59 @@ func main() {
 				continue
 			}
 
+			// Parse the payload
+			var payload DebeziumPayload
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				log.Printf("Error unmarshalling payload: %v", err)
+				msg.Nack(false, false)
+				continue
+			}
+
+			// Create simplified event structure
+			simplified := SimplifiedCDCEvent{
+				Operation: getOperationName(payload.Op),
+				Timestamp: time.Unix(0, payload.TsMs*int64(time.Millisecond)),
+				BinlogPosition: map[string]interface{}{
+					"file": payload.Source["file"],
+					"pos":  payload.Source["pos"],
+				},
+			}
+
+			// Extract database and table names from source
+			if db, ok := payload.Source["db"].(string); ok {
+				simplified.DatabaseName = db
+			}
+			if table, ok := payload.Source["table"].(string); ok {
+				simplified.TableName = table
+			}
+
+			// Extract transaction ID if available
+			if payload.Transaction != nil {
+				if txID, ok := payload.Transaction["id"].(string); ok {
+					simplified.TransactionID = txID
+				}
+			}
+
+			// Parse before data if exists
+			if len(payload.Before) > 0 && string(payload.Before) != "null" {
+				var beforeData map[string]interface{}
+				if err := json.Unmarshal(payload.Before, &beforeData); err == nil {
+					simplified.BeforeData = beforeData
+				} else {
+					log.Printf("Error parsing before data: %v", err)
+				}
+			}
+
+			// Parse after data if exists
+			if len(payload.After) > 0 && string(payload.After) != "null" {
+				var afterData map[string]interface{}
+				if err := json.Unmarshal(payload.After, &afterData); err == nil {
+					simplified.AfterData = afterData
+				} else {
+					log.Printf("Error parsing after data: %v", err)
+				}
+			}
+
 			// Store in MongoDB
 			for i, client := range mongoClients {
 				mongoConfig := cfg.MongoDB[i]
@@ -160,15 +235,7 @@ func main() {
 				collection := client.Database(mongoConfig.Database).Collection(collectionName)
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
-				// Insert the raw JSON data
-				var document map[string]interface{}
-				if err := json.Unmarshal(msg.Body, &document); err != nil {
-					log.Printf("Error parsing JSON for MongoDB: %v", err)
-					cancel()
-					continue
-				}
-
-				_, err := collection.InsertOne(ctx, document)
+				_, err := collection.InsertOne(ctx, simplified)
 				cancel()
 
 				if err != nil {
@@ -313,4 +380,20 @@ func splitRoutingKey(key string) []string {
 		result = append(result, key[start:])
 	}
 	return result
+}
+
+// getOperationName converts Debezium operation code to a human-readable name
+func getOperationName(op string) string {
+	switch op {
+	case "c":
+		return "create"
+	case "u":
+		return "update"
+	case "d":
+		return "delete"
+	case "r":
+		return "read"
+	default:
+		return op
+	}
 }
