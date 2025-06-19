@@ -105,6 +105,9 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    command: >
+      sh -c "mkdir -p /debezium/data && 
+             /debezium/run.sh"
     environment:
       # Debezium configuration
       DEBEZIUM_SINK_TYPE: ${DEBEZIUM_SINK_TYPE}
@@ -138,7 +141,7 @@ services:
       DEBEZIUM_FORMAT_VALUE: ${DEBEZIUM_FORMAT_VALUE}
       DEBEZIUM_FORMAT_KEY: ${DEBEZIUM_FORMAT_KEY}
     volumes:
-      - ./debezium-server/data:/debezium/data
+      - debezium-data:/debezium/data
     networks:
       - debezium-network
     healthcheck:
@@ -186,3 +189,6 @@ services:
     restart: "no"  # Run once and exit
     networks:
       - debezium-network
+
+volumes:
+  debezium-data:
