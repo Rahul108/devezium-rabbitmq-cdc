@@ -199,6 +199,12 @@ services:
       - MYSQL_USER=root
       - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=${MYSQL_DATABASE}
+      # High-throughput configuration
+      - TARGET_CPS=${TARGET_CPS:-10000}
+      - DURATION_SECONDS=${DURATION_SECONDS:-60}
+      - CONCURRENCY=${CONCURRENCY:-50}
+      - BATCH_SIZE=${BATCH_SIZE:-10}
+      - LOG_INTERVAL_SECONDS=${LOG_INTERVAL_SECONDS:-5}
     restart: "no"  # Run once and exit
     networks:
       - debezium-network
