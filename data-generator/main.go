@@ -45,22 +45,27 @@ func main() {
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
 
-	// Generate random data for customers and orders
+	// Generate random data for both inventory and ecommerce databases
 	for i := 0; i < 10; i++ {
-		// Insert a new customer
+		// Generate data for inventory database
 		customerID, err := insertCustomer(db)
 		if err != nil {
 			log.Printf("Failed to insert customer: %v", err)
-			continue
+		} else {
+			// Insert orders for the new customer
+			numOrders := rand.Intn(3) + 1 // 1-3 orders per customer
+			for j := 0; j < numOrders; j++ {
+				err := insertOrder(db, customerID)
+				if err != nil {
+					log.Printf("Failed to insert order: %v", err)
+				}
+			}
 		}
 
-		// Insert orders for the new customer
-		numOrders := rand.Intn(3) + 1 // 1-3 orders per customer
-		for j := 0; j < numOrders; j++ {
-			err := insertOrder(db, customerID)
-			if err != nil {
-				log.Printf("Failed to insert order: %v", err)
-			}
+		// Generate data for ecommerce database
+		err = insertProduct(db)
+		if err != nil {
+			log.Printf("Failed to insert product: %v", err)
 		}
 
 		// Wait a bit between insertions to make it easier to see the changes
@@ -116,6 +121,27 @@ func insertOrder(db *sql.DB, customerID int64) error {
 	return nil
 }
 
+// insertProduct inserts a new product into the ecommerce database
+func insertProduct(db *sql.DB) error {
+	// Generate random product data
+	name := randomProductName()
+	category := randomCategory()
+	price := 5.0 + rand.Float64()*195.0 // Random price between $5 and $200
+	stockQuantity := rand.Intn(100) + 1 // Random stock between 1 and 100
+
+	// Insert the product into ecommerce database
+	_, err := db.Exec(
+		"INSERT INTO ecommerce.products (name, category, price, stock_quantity) VALUES (?, ?, ?, ?)",
+		name, category, price, stockQuantity,
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Inserted product: %s (Category: %s, Price: $%.2f, Stock: %d)", name, category, price, stockQuantity)
+	return nil
+}
+
 // randomFirstName returns a random first name
 func randomFirstName() string {
 	firstNames := []string{
@@ -142,6 +168,24 @@ func randomLastName() string {
 func randomOrderStatus() string {
 	statuses := []string{"PENDING", "PROCESSING", "COMPLETED", "SHIPPED", "DELIVERED", "CANCELLED"}
 	return statuses[rand.Intn(len(statuses))]
+}
+
+// randomProductName returns a random product name
+func randomProductName() string {
+	products := []string{
+		"Wireless Headphones", "Smart Watch", "Gaming Keyboard", "USB-C Cable", "Bluetooth Speaker",
+		"Cotton T-Shirt", "Denim Jacket", "Running Shoes", "Winter Coat", "Baseball Cap",
+		"Programming Book", "Science Fiction Novel", "Cookbook", "Art Guide", "History Book",
+		"Garden Hose", "Plant Pot", "Garden Tools", "LED Light Bulb", "Kitchen Knife",
+		"Coffee Mug", "Water Bottle", "Backpack", "Phone Case", "Laptop Stand",
+	}
+	return products[rand.Intn(len(products))]
+}
+
+// randomCategory returns a random product category
+func randomCategory() string {
+	categories := []string{"Electronics", "Clothing", "Books", "Home & Garden"}
+	return categories[rand.Intn(len(categories))]
 }
 
 // getEnv gets an environment variable or returns the default value

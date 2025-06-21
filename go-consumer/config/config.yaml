@@ -5,6 +5,12 @@ rabbitmq:
   exchange_name: mysql-events
   exchange_type: topic
   routing_key: "mysql.*"  # Listen to all topics starting with mysql.
+  # Specific queues for db.table combinations
+  specific_queues:
+    - "inventory.customers.queue"
+    - "inventory.orders.queue"
+    - "ecommerce.products.queue"
+    - "ecommerce.categories.queue"
 
 mongodb:
   # These values can be overridden by environment variables

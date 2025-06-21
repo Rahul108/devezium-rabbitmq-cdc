@@ -51,31 +51,67 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {}
+    },
+    {
+      "name": "inventory.customers.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "inventory.orders.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "ecommerce.products.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "ecommerce.categories.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
     }
   ],
   "bindings": [
     {
       "source": "mysql-events",
       "vhost": "/",
-      "destination": "mysql.events",
+      "destination": "inventory.customers.queue",
       "destination_type": "queue",
-      "routing_key": "mysql.*",
+      "routing_key": "mysql.inventory.customers",
       "arguments": {}
     },
     {
       "source": "mysql-events",
       "vhost": "/",
-      "destination": "mysql.events",
+      "destination": "inventory.orders.queue",
       "destination_type": "queue",
-      "routing_key": "mysql.customers",
+      "routing_key": "mysql.inventory.orders",
       "arguments": {}
     },
     {
       "source": "mysql-events",
       "vhost": "/",
-      "destination": "mysql.events",
+      "destination": "ecommerce.products.queue",
       "destination_type": "queue",
-      "routing_key": "mysql.orders",
+      "routing_key": "mysql.ecommerce.products",
+      "arguments": {}
+    },
+    {
+      "source": "mysql-events",
+      "vhost": "/",
+      "destination": "ecommerce.categories.queue",
+      "destination_type": "queue",
+      "routing_key": "mysql.ecommerce.categories",
       "arguments": {}
     }
   ]

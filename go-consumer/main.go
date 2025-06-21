@@ -25,6 +25,8 @@ type Config struct {
 		ExchangeName string `mapstructure:"exchange_name"`
 		ExchangeType string `mapstructure:"exchange_type"`
 		RoutingKey   string `mapstructure:"routing_key"`
+		// New: Support for multiple DB.table specific queues
+		SpecificQueues []string `mapstructure:"specific_queues"`
 	} `mapstructure:"rabbitmq"`
 	MongoDB []MongoDBConfig `mapstructure:"mongodb"`
 }
@@ -110,54 +112,83 @@ func main() {
 		log.Fatalf("Failed to declare an exchange: %v", err)
 	}
 
-	// Declare a queue
-	q, err := ch.QueueDeclare(
-		cfg.RabbitMQ.QueueName, // name
-		true,                   // durable
-		false,                  // delete when unused
-		false,                  // exclusive
-		false,                  // no-wait
-		nil,                    // arguments
-	)
-	if err != nil {
-		log.Fatalf("Failed to declare a queue: %v", err)
+	// Define queues to consume from
+	queuesToConsume := []string{
+		"mysql.events", // Fallback/general queue
+		"inventory.customers.queue",
+		"inventory.orders.queue",
+		"ecommerce.products.queue",
+		"ecommerce.categories.queue",
 	}
 
-	// Bind the queue to the exchange
-	err = ch.QueueBind(
-		q.Name,      // queue name
-		"#",         // routing key
-		"amq.topic", // exchange
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Fatalf("Failed to bind a queue: %v", err)
+	// Add configured specific queues if any
+	if len(cfg.RabbitMQ.SpecificQueues) > 0 {
+		queuesToConsume = append(queuesToConsume, cfg.RabbitMQ.SpecificQueues...)
 	}
 
-	// Start consuming
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	if err != nil {
-		log.Fatalf("Failed to register a consumer: %v", err)
+	// Declare and consume from all queues
+	var allMsgs []<-chan amqp.Delivery
+
+	for _, queueName := range queuesToConsume {
+		// Declare queue (it should already exist from RabbitMQ definitions)
+		q, err := ch.QueueDeclare(
+			queueName, // name
+			true,      // durable
+			false,     // delete when unused
+			false,     // exclusive
+			false,     // no-wait
+			nil,       // arguments
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to declare queue %s: %v", queueName, err)
+			continue
+		}
+
+		// Start consuming from this queue
+		msgs, err := ch.Consume(
+			q.Name, // queue
+			"",     // consumer
+			false,  // auto-ack
+			false,  // exclusive
+			false,  // no-local
+			false,  // no-wait
+			nil,    // args
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to register consumer for queue %s: %v", queueName, err)
+			continue
+		}
+
+		allMsgs = append(allMsgs, msgs)
+		log.Printf("Started consuming from queue: %s", queueName)
 	}
 
 	// Handle graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Process messages
-	log.Println("Starting to consume messages...")
+	// Process messages from all queues
+	log.Println("Starting to consume messages from multiple queues...")
+
+	// Create a single channel to merge all messages
+	mergedMsgs := make(chan amqp.Delivery)
+
+	// Start goroutine for each queue
+	for _, msgs := range allMsgs {
+		go func(msgsChan <-chan amqp.Delivery) {
+			for msg := range msgsChan {
+				mergedMsgs <- msg
+			}
+		}(msgs)
+	}
+
+	// Process merged messages
 	go func() {
-		for msg := range msgs {
-			log.Printf("Received a message: %s", msg.RoutingKey)
+		for msg := range mergedMsgs {
+			log.Printf("=== DEBUG: Received message ===")
+			log.Printf("Routing Key: '%s'", msg.RoutingKey)
+			log.Printf("Exchange: '%s'", msg.Exchange)
+			log.Printf("Consumer Tag: '%s'", msg.ConsumerTag)
 
 			// Parse the message
 			var event DebeziumEvent
@@ -224,16 +255,21 @@ func main() {
 			for i, client := range mongoClients {
 				mongoConfig := cfg.MongoDB[i]
 
-				// Determine collection name based on routing key/topic
-				// For topic-based routing: mysql.customers -> mysql_customers
-				// For topic-based routing: mysql.orders -> mysql_orders
-				collectionName := mongoConfig.CollectionPrefix
-				if msg.RoutingKey != "" {
+				// Determine collection name based on database and table
+				// Priority: 1. DB.table specific, 2. routing key based, 3. fallback
+				var collectionName string
+
+				if simplified.DatabaseName != "" && simplified.TableName != "" {
+					// Use database.table format: inventory_customers, ecommerce_products
+					collectionName = simplified.DatabaseName + "_" + simplified.TableName
+				} else if msg.RoutingKey != "" {
 					// Replace dots with underscores for MongoDB collection names
+					// mysql.inventory.customers -> mysql_inventory_customers
 					topicName := strings.ReplaceAll(msg.RoutingKey, ".", "_")
 					collectionName = topicName
 				} else {
-					// Fallback to table name from source if routing key is not available
+					// Fallback to original logic
+					collectionName = mongoConfig.CollectionPrefix
 					if simplified.TableName != "" {
 						collectionName += "_" + simplified.TableName
 					}
@@ -249,7 +285,8 @@ func main() {
 				if err != nil {
 					log.Printf("Error inserting into MongoDB %d: %v", i+1, err)
 				} else {
-					log.Printf("Successfully stored in MongoDB %d, collection: %s, topic: %s", i+1, collectionName, msg.RoutingKey)
+					log.Printf("Successfully stored in MongoDB %d, collection: %s, topic: %s, db.table: %s.%s",
+						i+1, collectionName, msg.RoutingKey, simplified.DatabaseName, simplified.TableName)
 				}
 			}
 
