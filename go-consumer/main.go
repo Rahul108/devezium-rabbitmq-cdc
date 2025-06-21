@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -223,12 +224,19 @@ func main() {
 			for i, client := range mongoClients {
 				mongoConfig := cfg.MongoDB[i]
 
-				// Determine collection name based on routing key
-				// For simplicity, we'll use the table name from the routing key
-				parts := splitRoutingKey(msg.RoutingKey)
+				// Determine collection name based on routing key/topic
+				// For topic-based routing: mysql.customers -> mysql_customers
+				// For topic-based routing: mysql.orders -> mysql_orders
 				collectionName := mongoConfig.CollectionPrefix
-				if len(parts) > 0 {
-					collectionName += "_" + parts[len(parts)-1]
+				if msg.RoutingKey != "" {
+					// Replace dots with underscores for MongoDB collection names
+					topicName := strings.ReplaceAll(msg.RoutingKey, ".", "_")
+					collectionName = topicName
+				} else {
+					// Fallback to table name from source if routing key is not available
+					if simplified.TableName != "" {
+						collectionName += "_" + simplified.TableName
+					}
 				}
 
 				// Insert into MongoDB
@@ -241,7 +249,7 @@ func main() {
 				if err != nil {
 					log.Printf("Error inserting into MongoDB %d: %v", i+1, err)
 				} else {
-					log.Printf("Successfully stored in MongoDB %d, collection: %s", i+1, collectionName)
+					log.Printf("Successfully stored in MongoDB %d, collection: %s, topic: %s", i+1, collectionName, msg.RoutingKey)
 				}
 			}
 

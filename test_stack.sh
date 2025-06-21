@@ -66,6 +66,15 @@ docker compose logs --tail=20 debezium
 echo -e "${GREEN}Recent logs from Go consumer:${NC}"
 docker compose logs --tail=20 go-consumer
 
+echo -e "${YELLOW}Testing Debezium Monitoring Endpoints:${NC}"
+if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/q/health | grep -q "200"; then
+    echo -e "${GREEN}✓ Debezium health endpoint is accessible!${NC}"
+    echo "Health UI: http://localhost:8080/q/health-ui"
+    echo "Metrics: http://localhost:8080/q/metrics"
+else
+    echo -e "${RED}✗ Debezium monitoring endpoints are not accessible.${NC}"
+fi
+
 echo -e "${GREEN}Test completed.${NC}"
 echo "To see all logs, run:"
 echo "docker compose logs"

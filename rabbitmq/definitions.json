@@ -59,7 +59,23 @@
       "vhost": "/",
       "destination": "mysql.events",
       "destination_type": "queue",
-      "routing_key": "#",
+      "routing_key": "mysql.*",
+      "arguments": {}
+    },
+    {
+      "source": "mysql-events",
+      "vhost": "/",
+      "destination": "mysql.events",
+      "destination_type": "queue",
+      "routing_key": "mysql.customers",
+      "arguments": {}
+    },
+    {
+      "source": "mysql-events",
+      "vhost": "/",
+      "destination": "mysql.events",
+      "destination_type": "queue",
+      "routing_key": "mysql.orders",
       "arguments": {}
     }
   ]

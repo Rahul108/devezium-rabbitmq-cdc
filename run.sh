@@ -57,10 +57,16 @@ docker compose logs --tail=20 go-consumer
 
 echo -e "${YELLOW}Checking MongoDB data...${NC}"
 echo "To check MongoDB data, run:"
-echo "docker exec -it mongodb1 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.${MONGODB_COLLECTION_PREFIX}_customers.find()'"
-echo "docker exec -it mongodb2 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.${MONGODB_COLLECTION_PREFIX}_customers.find()'"
+echo "docker exec -it mongodb1 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.mysql_customers.find()'"
+echo "docker exec -it mongodb2 mongosh -u ${MONGODB_USER} -p ${MONGODB_PASSWORD} --eval 'use ${MONGODB_DATABASE}; db.mysql_orders.find()'"
 
-echo -e "${GREEN}Done! The CDC pipeline is now running.${NC}"
+echo -e "${YELLOW}Debezium Monitoring & Health Endpoints:${NC}"
+echo "Health check: http://localhost:${QUARKUS_HTTP_PORT}/q/health"
+echo "Health UI: http://localhost:${QUARKUS_HTTP_PORT}/q/health-ui"
+echo "Metrics: http://localhost:${QUARKUS_HTTP_PORT}/q/metrics"
+echo "OpenAPI: http://localhost:${QUARKUS_HTTP_PORT}/q/openapi"
+
+echo -e "${GREEN}Done! The CDC pipeline is now running with enhanced monitoring.${NC}"
 echo "Use the following commands to interact with the system:"
 echo "- docker compose logs -f [service]  # Follow logs of a specific service"
 echo "- docker compose down               # Stop all services"

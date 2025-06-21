@@ -100,6 +100,8 @@ services:
     image: debezium/server:${DEBEZIUM_VERSION}
     container_name: debezium
     restart: unless-stopped
+    ports:
+      - "${QUARKUS_HTTP_PORT}:8080"   # Quarkus management and health endpoints
     depends_on:
       mysql:
         condition: service_healthy
@@ -137,11 +139,22 @@ services:
       DEBEZIUM_SINK_RABBITMQ_ROUTINGKEY: ${RABBITMQ_ROUTING_KEY}
       DEBEZIUM_SINK_RABBITMQ_ACK: true
       
-      # Additional configuration
+      # Format configuration
       DEBEZIUM_FORMAT_VALUE: ${DEBEZIUM_FORMAT_VALUE}
       DEBEZIUM_FORMAT_KEY: ${DEBEZIUM_FORMAT_KEY}
+      DEBEZIUM_KEY_CONVERTER_SCHEMAS_ENABLE: ${DEBEZIUM_KEY_CONVERTER_SCHEMAS_ENABLE}
+      
+      # Asynchronous Engine Properties
+      DEBEZIUM_ENGINE_RECORD_PROCESSING_THREADS: ${DEBEZIUM_RECORD_PROCESSING_THREADS}
+      
+      # Quarkus Monitoring Configuration
+      QUARKUS_HTTP_PORT: ${QUARKUS_HTTP_PORT}
+      QUARKUS_MANAGEMENT_ENABLED: ${QUARKUS_MANAGEMENT_ENABLED}
+      QUARKUS_SMALLRYE_HEALTH_UI_ENABLE: ${QUARKUS_SMALLRYE_HEALTH_UI_ENABLE}
+      QUARKUS_SMALLRYE_METRICS_ENABLED: ${QUARKUS_SMALLRYE_METRICS_ENABLED}
     volumes:
       - debezium-data:/debezium/data
+      - ./debezium-server/conf:/debezium/conf
     networks:
       - debezium-network
     healthcheck:
